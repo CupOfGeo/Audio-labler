@@ -9,29 +9,37 @@ import pandas as pd
 import base64
 import io
 from pydub import AudioSegment
+from helper_stuff import to_sub
 
 #maybe i should write docs for this bc i dont wanna work on functionality right now
 
 # this is just the columns of the dataframe the user is making
 # its currently a global but will be move to a local store in deployment
-df = pd.DataFrame(columns=['character', 'time_start', 'time_end', 'tone', 'transcript'])
+out_df = pd.DataFrame(columns=['character', 'time_start', 'time_end', 'tone', 'transcript'])
 
-app = dash.Dash(__name__, suppress_callback_exceptions=True, external_stylesheets=[dbc.themes.BOOTSTRAP])
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 
 # the list of characters for dropdown menu hard coded make as input for generalization of other shows
 characters = ['Rick', 'Morty', 'Jerry', 'Summer', 'Beth']
 char_options = [{'label': x, 'value': x} for x in characters]
 
 # temp test audio and subtitles file to use for functionality testing
-clip = AudioSegment.from_mp3('/assets/rick_temp/S01E03 - Anatomy Park.mp3')
+clip = AudioSegment.from_mp3('/Users/mazzeogeorge/Code/Audio-labler/assests/rick_temp/S01E03 - Anatomy Park.mp3')
 
-subtitles_file = open('/assets/rick_temp/Rick.and.Morty.S01E03.720p.BluRay.x264.DAA.srt')
-
+subtitles_file = open('/Users/mazzeogeorge/Code/Audio-labler/assests/rick_temp/Rick.and.Morty.S01E03.720p.BluRay.x264.DAA.srt')
+sub_df = to_sub(subtitles_file)
+subtitles_file.close()
 
 app.layout = dbc.Container(
     [
-        # dcc.Store(id='mp3_session', storage_type='session'),
+        # data['index'] is index of df to inc with next and skip
+        # data['out_df'] output dataframe
+        dcc.Store(id='out_df', storage_type='session'),
+        dcc.Store(id='data', storage_type='session'),
+        dcc.Store(id='idx', storage_type='session'),
         # maybe use this to store the dataframes instead
+
+
 
         # upload mp3 and subtitle srt files
         # the mp3 is going to need to be sent to a bucket with a life cycle
@@ -82,7 +90,8 @@ app.layout = dbc.Container(
         # audio out trying to add pause feature that will update the time clip
         # look into n_click_timestamp https://dash.plotly.com/dash-html-components/audio
         dbc.Row(
-            html.Audio(id='audio_out',src='rick_voice.wav', controls=True, style={'display': 'block', 'margin': '0 auto'})
+            #src = clip
+            html.Audio(id='audio_out', controls=True, style={'display': 'block', 'margin': '0 auto'})
         ),
 
         #how much to offset the time gotten from the subtitle file
@@ -125,44 +134,7 @@ app.layout = dbc.Container(
 )
 
 
-def to_sub(file):
-    r = file.read()
-    read_file = r.split('\n')
 
-    sub_line = []
-    groups = []
-    # print(len(read_file))
-    # taking one group of data and putting it all on one line
-    for line in read_file:
-        if line != '\r':
-            sub_line.append(line)
-        else:
-            if sub_line != []:
-                groups.append(sub_line)
-            sub_line = []
-
-    line = []
-    timestart = []
-    timeend = []
-
-    for group in groups:
-        line.append((" ".join(group[2:])))
-
-        # turn time into seconds
-        unformat_time = group[1]
-        left, right = unformat_time.split('-->')
-        left = left.replace(' ', '').split(':')
-        right = right.replace(' ', '').split(':')
-        left_sum = int(left[0]) * 60 * 60 * 1000 + int(left[1]) * 60 * 1000 + int(left[2].replace(',', '')) + 500
-        right_sum = int(right[0]) * 60 * 60 * 1000 + int(right[1]) * 60 * 1000 + int(right[2].replace(',', '')) + 500
-        timestart.append(left_sum)
-        timeend.append(right_sum)
-        # print(left_sum, right_sum)
-        # print(left,right)
-
-    sub_df = pd.DataFrame({'TimeStart': timestart, 'TimeEnd': timeend, 'Text': line})
-
-    return sub_df
 
 
 def parse_contents(contents, filename, date):
@@ -189,18 +161,18 @@ def parse_contents(contents, filename, date):
 
 # todo re-wirte as it shouldn't be at the bottom just a test to make sure im parsing the data correctly
 # the data should be in a stored obj
-@app.callback(Output('table_div', 'children'),
-              Input('upload-data', 'contents'),
-              State('upload-data', 'filename'),
-              State('upload-data', 'last_modified'))
-def update_output(list_of_contents, list_of_names, list_of_dates):
-    if list_of_contents is not None:
-        children = [parse_contents(c, n, d) for c, n, d in zip(list_of_contents, list_of_names, list_of_dates)]
-
-        out_table = dash_table.DataTable(id='table', columns=[{"name": i, "id": i} for i in children[0].columns],
-                                         data=children[0].to_dict('records'))
-
-        return out_table
+# @app.callback(Output('table_div', 'children'),
+#               Input('upload-data', 'contents'),
+#               State('upload-data', 'filename'),
+#               State('upload-data', 'last_modified'))
+# def update_output(list_of_contents, list_of_names, list_of_dates):
+#     if list_of_contents is not None:
+#         children = [parse_contents(c, n, d) for c, n, d in zip(list_of_contents, list_of_names, list_of_dates)]
+#
+#         out_table = dash_table.DataTable(id='table', columns=[{"name": i, "id": i} for i in children[0].columns],
+#                                          data=children[0].to_dict('records'))
+#
+#         return out_table
 
 
 # decodes the mp3 to byte code and saves it to a file now i can open the file as a buffer
@@ -220,31 +192,111 @@ def parse_mp3_upload(contents):
 
 # store the uploaded mp3 to store local object
 # the test can be if i can hear it in the audio button
-@app.callback(Output('mp3_session', 'data'),
-              Input('upload-mp3', 'contents'),
-              State('upload-mp3', 'filename'),
-              State('upload-mp3', 'last_modified'),
-              State('mp3_session', 'data'))
-def update_output(list_of_contents, list_of_names, list_of_dates, data):
-    # print('Hello?')
-    if list_of_contents is not None:
-        print(list_of_names)
-        #parse_mp3_upload(list_of_contents[0])
-        # Give a default data dict with 0 clicks if there's no data.
-        data = data or {'mp3': 0}
-        data['mp3'] = list_of_contents[0]
-        return data
-    else:
-        raise PreventUpdate
+# @app.callback(Output('mp3_session', 'data'),
+#               Input('upload-mp3', 'contents'),
+#               State('upload-mp3', 'filename'),
+#               State('upload-mp3', 'last_modified'),
+#               State('mp3_session', 'data'))
+# def update_output(list_of_contents, list_of_names, list_of_dates, data):
+#     # print('Hello?')
+#     if list_of_contents is not None:
+#         print(list_of_names)
+#         #parse_mp3_upload(list_of_contents[0])
+#         # Give a default data dict with 0 clicks if there's no data.
+#         data = data or {'mp3': 0}
+#         data['mp3'] = list_of_contents[0]
+#         return data
+#     else:
+#         raise PreventUpdate
 
 
 @app.callback(Output('audio_out', 'src'),
+              Output('data','data'),
               Input('end_offset', 'value'),
-              Input('start_offset', 'value'))
-def stop_me(drop):
-    # wack kill me Reiners talking to me again
+              Input('start_offset', 'value'),
+              State('idx', 'data'),
+              State('data','data'))
+def chop_audio(end_offset, start_offset, idx, data):
+    idx = idx or {'index': 0}
+    data = data or {'fucker'}
+    idx = idx['index']
+    start = sub_df.TimeStart.iloc[idx] + start_offset
+    end = sub_df.TimeEnd.iloc[idx] + end_offset
+    data['start'] = start
+    data['end'] = end
+    return clip[start:end], data
 
-    return clip[start:end]
+
+#Save Button and functionality
+@app.callback(Output('out_df','data'),
+              Output('idx', 'data'),
+              Input('save', 'n_clicks'),
+              Input('skip', 'n_clicks'),
+              State('data','data'),
+              State('idx','data'),
+              State('transcript', 'value'),
+              State('char-dd', 'value'),
+              State('tone', 'value'))
+def save_line(save_but,skip_but,data,idx, transcription,charcater, tone):
+    # if the save button was clicked or the skip button was clicked
+    data = data or {}
+    idx = idx or {'index':0}
+    changed_id = [p['prop_id'] for p in dash.callback_context.triggered][0]
+    if 'save' in changed_id:
+        # take all the information and turn it to a df row to append
+        # how should i get the time stamps + offsets to here?
+        # solutions i can save it int the stores data
+        row = {'character': charcater, 'time_start': data['start'], 'time_end': data['end'], 'tone': tone,
+               'transcript': transcription}
+
+        # append this row to the df
+        out_df = data['out_df']
+        out_df = out_df.append(row)
+        data['out_df'] = out_df
+    elif 'skip' in changed_id:
+        msg = 'Button 2 was most recently clicked'
+
+    # test check
+    # out_df.to_csv('out.csv')
+
+    #in both cases inc idx
+    idx['index'] = idx['index'] + 1
+
+    # return new data to store
+    return data, idx
+
+
+
+
+# when a new row is appended update the table
+@app.callback(Output('table_div', 'children'),
+              Input('data','data'))
+def table_update(data):
+    out_df = data['out_df']
+    out_table = dash_table.DataTable(id='table', columns=[{"name": i, "id": i} for i in out_df.columns],
+                                     data=out_df.to_dict('records'))
+
+    return out_table
+
+
+# when the data has been updated its because either the audio was updated or the next was hit
+# i need to separate them because i cant have it update just because i change the audio
+# Done
+
+# so this is the reload function that is called after the save&next or skip button is clicked
+# Should i clear all the fields? ehh like yeah def
+# not the dropdown tho which is good because i don't kow how i would do that
+@app.callback(Output('transcript', 'value'),
+              Output('end_offset','value'),
+              Output('start_offset','value'),
+              Output('tone','value'),
+              Input('idx','data'))
+def next_transcription(idx):
+    idx = idx or {'index':0}
+    index = idx['index']
+    line = sub_df.transcript.iloc[index]
+    return line, 0, 0, ''
+
 
 
 
