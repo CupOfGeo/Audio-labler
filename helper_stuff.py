@@ -1,15 +1,17 @@
 import pandas as pd
 
 def to_sub(file):
-    r = file.read()
+    file_pointer = open(file)
+    r = file_pointer.read()
     read_file = r.split('\n')
-
+    file_pointer.close()
+    #print('len_read_file:',len(read_file))
     sub_line = []
     groups = []
     # print(len(read_file))
     # taking one group of data and putting it all on one line
     for line in read_file:
-        if line != '\r':
+        if line != '': #'/r/ as a bytestream thing
             sub_line.append(line)
         else:
             if sub_line != []:
